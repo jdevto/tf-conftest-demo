@@ -1,203 +1,175 @@
-# tf-conftest-demo
-Demo of Terraform plan validation using Conftest and Open Policy Agent
+# Terraform Conftest Demo
 
-# OPA Policy Testing
-
-This directory contains test Terraform configurations to verify the OPA policies work correctly before deploying them to Atlantis.
+Demo of Terraform plan validation using Conftest and Open Policy Agent (OPA). This example shows how to enforce policies on Terraform configurations before they're applied.
 
 ## Overview
 
-This test setup allows you to:
-- Test OPA/Rego policies locally before using them in Atlantis
-- Verify that policies correctly detect violations
-- Debug policy logic without waiting for Atlantis runs
+This project demonstrates how to:
 
-## Prerequisites
+- Write OPA policies in Rego to validate Terraform plans
+- Test policies locally using Conftest
+- Integrate policy validation into GitHub Actions CI/CD pipeline
+- Catch infrastructure violations before they reach production
 
-### 1. Terraform
+## Project Structure
 
-Install Terraform (any recent version). Verify installation:
-```bash
-terraform --version
+```text
+.
+├── policies/
+│   └── main.rego          # OPA policy definitions
+├── fail.tf                 # Example that violates the policy
+├── pass.tf                 # Example that passes the policy
+└── README.md
 ```
 
-### 2. Conftest
+## The Policy
 
-Conftest is the tool that runs OPA policies against Terraform plan JSON. Install it as follows:
+The example policy (`policies/main.rego`) denies the creation of `null_resource` resources:
 
-#### Linux Installation (Recommended)
-
-```bash
-# Download the latest release
-wget https://github.com/open-policy-agent/conftest/releases/download/v0.66.0/conftest_0.66.0_Linux_x86_64.tar.gz
-
-# Extract the binary
-tar xzf conftest_0.66.0_Linux_x86_64.tar.gz
-
-# Install to ~/bin (no sudo required)
-mkdir -p ~/bin
-mv conftest ~/bin/
-chmod +x ~/bin/conftest
-
-# Verify installation
-conftest --version
+```rego
+deny contains msg if {
+  num_resources := num_creates["null_resource"]
+  num_resources > 0
+  msg := "null resources cannot be created"
+}
 ```
 
-**Important:** Make sure `~/bin` is in your PATH. Check with:
-```bash
-echo $PATH | grep -q "$HOME/bin" && echo "✓ ~/bin is in PATH" || echo "✗ ~/bin is NOT in PATH"
+## Example Terraform Files
+
+### Failing Example (`fail.tf`)
+
+This file creates a `null_resource`, which violates the policy:
+
+```hcl
+resource "null_resource" "test" {
+  triggers = {
+    test = "value"
+  }
+}
 ```
 
-If `~/bin` is not in your PATH, add this to your `~/.bashrc` or `~/.zshrc`:
-```bash
-export PATH="$HOME/bin:$PATH"
+**Result:** ❌ Policy violation - "null resources cannot be created"
+
+### Passing Example (`pass.tf`)
+
+This file creates a `random_id` resource, which is allowed:
+
+```hcl
+resource "random_id" "test" {
+  byte_length = 4
+}
 ```
 
-Then reload your shell:
-```bash
-source ~/.bashrc  # or source ~/.zshrc
-```
+**Result:** ✅ Policy passes
 
-#### Alternative Installation Methods
+## Testing Locally
 
-- **macOS (Homebrew):** `brew install conftest`
-- **Go (if you have Go 1.25.3+):** `go install github.com/open-policy-agent/conftest@latest`
+### Prerequisites
 
-## Running the Test
+- [Terraform](https://www.terraform.io/downloads.html)
+- [Conftest](https://www.conftest.dev/install/)
 
-### Quick Start (Automated)
+### Steps
 
-The easiest way to run the test is using the provided script:
+1. Initialize Terraform:
 
 ```bash
-cd test
-./test.sh
-```
-
-This script will:
-1. Initialize Terraform
-2. Generate a plan
-3. Convert it to JSON
-4. Run conftest against the plan
-5. Clean up temporary files
-
-### Manual Steps
-
-If you prefer to run the steps manually:
-
-#### Step 1: Generate Terraform Plan
-
-```bash
-cd test
 terraform init
+```
+
+1. Generate a Terraform plan:
+
+```bash
 terraform plan -out=tfplan.binary
 terraform show -json tfplan.binary > plan.json
 ```
 
-#### Step 2: Run Conftest Against the Plan
+1. Run Conftest against the plan:
 
 ```bash
-# From the test directory
-conftest test plan.json -p ../policies/deny_null_resource
+conftest test plan.json --policy policies/
 ```
 
-### Expected Result
+### Expected Output
 
-The policy should **FAIL** (exit code 1) because `main.tf` creates a `null_resource`, which is denied by the policy.
+For `fail.tf`:
 
-You should see output like:
-```
+```text
 FAIL - plan.json - main - null resources cannot be created
-
-1 test, 0 passed, 0 warnings, 1 failure, 0 exceptions
 ```
 
-**Note:** A failure here is expected and correct! The policy is working as intended by blocking `null_resource` creation.
+For `pass.tf`:
 
-## Understanding the Test
-
-### Current Test Configuration
-
-The `test/main.tf` file creates a `null_resource`, which is explicitly denied by the policy in `policies/deny_null_resource/main.rego`. This is an intentional violation to verify the policy works correctly.
-
-### Policy Location
-
-The policy being tested is located at:
-```
-policies/deny_null_resource/main.rego
+```text
+PASS - plan.json
 ```
 
-This policy:
-- Checks all resources in the Terraform plan
-- Counts how many `null_resource` resources are being created
-- Denies the plan if any `null_resource` creations are detected
+## GitHub Actions Integration
 
-### Test Script Details
+This repository includes a GitHub Actions workflow that automatically runs Conftest on pull requests.
 
-The `test.sh` script:
-- Automatically runs all test steps
-- Cleans up temporary files after completion
-- Returns exit code 1 if policy violations are found (expected for this test)
-- Returns exit code 0 if no violations are found
+### Workflow Features
 
-## Troubleshooting
+- ✅ Runs on all pull requests
+- ✅ Validates Terraform configurations
+- ✅ Generates plan and runs Conftest
+- ✅ Reports violations in PR comments
+- ✅ Blocks merging if policies fail
 
-### Conftest Not Found
+### Workflow Configuration
 
-If you see `conftest: command not found`:
-1. Verify conftest is installed: `which conftest`
-2. Check if `~/bin` is in your PATH: `echo $PATH`
-3. If not, add it to your shell config and reload
+The workflow uses the [actionsforge/actions-terraform-conftest](https://github.com/actionsforge/actions-terraform-conftest) action:
 
-### Policy Syntax Errors
-
-If you see Rego syntax errors, ensure you're using the correct syntax for your conftest version:
-- Conftest 0.66.0+ requires `import future.keywords.if`, `import future.keywords.in`, and `import future.keywords.contains`
-- Rules must use `if` keyword: `deny contains msg if { ... }`
-
-### Terraform Errors
-
-If Terraform fails:
-- Ensure you have valid AWS credentials (if testing with AWS resources)
-- Check that `main-passing.tf.disabled` is not being loaded (it requires AWS)
-- The current `main.tf` only uses `null_resource` which doesn't require credentials
-
-## File Structure
-
-```
-test/
-├── README.md          # This file
-├── test.sh            # Automated test script
-├── main.tf            # Test Terraform config (creates null_resource - should fail)
-└── .terraform/        # Terraform state (gitignored)
-
-policies/
-└── deny_null_resource/
-    └── main.rego      # OPA policy that denies null_resource creation
+```yaml
+- name: Run Terraform Conftest
+  id: conftest
+  uses: actionsforge/actions-terraform-conftest@v1
+  with:
+    conftest-version: 'v0.66.0'
+    terraform-version: '1.6.0'
+    policy-path: './policies'
+    working-directory: './'
+    run-terraform-plan: 'true'
+    run-conftest: 'true'
 ```
 
-## Integration with Atlantis
+## Use Cases
 
-Once you've verified the policy works locally:
+This pattern is useful for:
 
-1. The policy is already configured in the repository at `policies/deny_null_resource/main.rego`
-2. Atlantis server configuration should reference this policy path
-3. The policy will run automatically during Atlantis plan operations
-4. Plans that violate the policy will be blocked from applying
+- **Security compliance**: Enforce security policies (e.g., no public S3 buckets)
+- **Cost control**: Limit expensive resource types
+- **Standards enforcement**: Require specific tags or naming conventions
+- **Best practices**: Ensure encryption, backups, or monitoring are configured
 
-## Cleanup
+## Extending the Policies
 
-The test script automatically cleans up temporary files. To manually clean up:
+To add more policies, edit `policies/main.rego`:
 
-```bash
-cd test
-rm -f plan.json tfplan.binary
-rm -rf .terraform
+```rego
+# Example: Deny public S3 buckets
+deny contains msg if {
+  some resource in input.resource_changes
+  resource.type == "aws_s3_bucket"
+  resource.change.after.acl == "public-read"
+  msg := "S3 buckets cannot be public"
+}
+
+# Example: Require tags
+deny contains msg if {
+  some resource in input.resource_changes
+  not resource.change.after.tags.Environment
+  msg := sprintf("Resource %s must have an Environment tag", [resource.address])
+}
 ```
 
-## Additional Resources
+## Resources
 
 - [Conftest Documentation](https://www.conftest.dev/)
-- [OPA/Rego Documentation](https://www.openpolicyagent.org/docs/latest/)
-- [Atlantis Policy Checking](https://www.runatlantis.io/docs/policy-checking.html)
+- [Open Policy Agent (OPA)](https://www.openpolicyagent.org/)
+- [Rego Language Guide](https://www.openpolicyagent.org/docs/latest/policy-language/)
+- [Terraform JSON Output Format](https://www.terraform.io/docs/internals/json-format.html)
 
+## License
+
+See [LICENSE](LICENSE) file for details.
