@@ -1,0 +1,34 @@
+name: Terraform Conftest
+
+on:
+  pull_request:
+
+jobs:
+  validate:
+    name: Validate Terraform Conftest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Run Terraform Conftest
+        id: conftest
+        uses: actionsforge/actions-terraform-conftest@v1
+        with:
+          conftest-version: 'v0.66.0'
+          terraform-version: '1.6.0'
+          policy-path: './policies'
+          working-directory: './'
+          run-terraform-test: 'true'
+          run-terraform-plan: 'true'
+          run-conftest: 'true'
+          terraform-plan-file: 'plan.json'
+
+      - name: Check results
+        run: |
+          echo "Plan file: ${{ steps.conftest.outputs.plan-file }}"
+          echo "Passed: ${{ steps.conftest.outputs.conftest-passed }}"
+          echo "Violations: ${{ steps.conftest.outputs.violations-count }}"

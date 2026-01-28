@@ -1,0 +1,9 @@
+# Terraform files
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+plan.json
+tfplan.binary
+terraform.tfstate
+terraform.tfstate.backup
+
