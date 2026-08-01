@@ -16,7 +16,7 @@ jobs:
 
       - name: Run Terraform Conftest
         id: conftest
-        uses: actionsforge/actions-terraform-conftest@v1
+        uses: actionsforge/actions-terraform-conftest@v1.0.20
         with:
           conftest-version: 'v0.66.0'
           terraform-version: '1.6.0'
